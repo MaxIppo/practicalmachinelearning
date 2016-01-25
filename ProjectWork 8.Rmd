@@ -1,0 +1,290 @@
+---
+title: "Prediction Assignment WriteUp of Coursera's Practical Machine Learning Course from Johns Hopkins Bloomberg School of Public Health"
+author: "MI"
+date: "17 gennaio 2016"
+output: html_document
+---
+#Executive Summary
+These MarkDown documents represents the deliverable Prediction Assignment WriteUp of Coursera's Practical Machine Learning Course from Johns Hopkins Bloomberg School of Public Health.  
+The Goal consist in predicting how (i.e. classe)  a small population of athletes perform a specific exercise, using data coming from wereable devices.
+Such kind of prediction challenge requires Multinomial Classification models and approaches. 
+After data preprocessing, several "Classifiers" have been identified (i.e. Tree Rpart models, Random Foorest, gbm, lda and Naive Bayes) trough cross validation and dataset partition (i.e. training, test and validation subset layers).  
+The model that offers better accuracy is the Random Forrest with accuracy around...  
+The model built has been applied to 20 observation to identify the 
+
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Prediction Method adopted
+
+The following steps have been followed to structure the predictive model:
+* **Basic Settings Install packages and libraries**: required packages and libraries have been selected and described here. Basic seed setting has been forced here.  
+* **Fetch the Data**: data are taken from links suggested by Assigment guidelines and dowloaded in a subdirectory of working directory. 
+* **Upload DataSet**: training and testing dataset are loaded. 
+* **Preprocess of Data**: training dataset has been pre-processed for eliminating Near Zero Variables, Highly correlated pedictors and columns not representing predictors. NA values has been inputed with KNN method.     
+* **Prediction Study Design**: testing dataset provided does not contain outcome variable "classe". It is therefore treated as a set of "new observations" where to apply the validated and tested model. The "Training" dataset has been splitted in a 60% subset that represents the actual "training data set". The OOS dataset (i.e. 40%) has been split in "train dataset" and "validation dataset". Each model is then built leveraging the actual "training dataset", its performance is valuated leveraging the "training dataset". The model whose performances with the "training dataset" are the highest is entitled bo be chosen. Perormances of the chosen alhorithm (Random Forest) are assessd on the validation dataset. Cross validation for most of the model is evaluated for most of the model using 10 k-Fold of training set.     
+* **Model Build Up** the following models have been considered:
+        + Tree Classification
+        + Random Forest
+        + Boosting
+        + Model Based Prediction: Naive Bayes
+        
+* **Selection of most effective model and validation**
+* **Apply model** to 20 new observation (testing data set)
+
+# Basic Settings
+Please consider that the following packages are needed: UsingR, ggplot2, rpart, randomForest,caret, gbm, splines, parallel, plyr, klaR, e1071.  
+Seed set @ 1000.  
+
+```{r, cache = TRUE, echo = FALSE, results="hide", message = FALSE, warning = FALSE, tidy = FALSE}
+library(UsingR)
+library(ggplot2)
+library(rpart)
+library(randomForest)
+library(caret)
+library(gbm)
+library(splines)
+library(parallel)
+library(plyr)
+library(klaR)
+library(rpart)
+library(randomForest)
+library(e1071)
+set.seed(1000)
+```
+
+
+#Upload Dataset
+Training Dataset is loaded into "trainingSet" daraframe and testing
+The following chunk of code prints also dimensions of the datasets uploaded
+
+```{r, cache = FALSE, echo = TRUE, results="hide", message = TRUE, warning = FALSE, tidy = FALSE}
+
+trainingSet <- read.csv("D:/DATA_SCIENCE/John_Hopkins/H-Practical Machine Learning/Projectwork/pml-training.csv")
+testingSet <- read.csv("D:/DATA_SCIENCE/John_Hopkins/H-Practical Machine Learning/Projectwork/pml-testing.csv")
+dim (trainingSet) # check dimension of dataset
+dim (testingSet) # check dimension of dataset
+
+```
+
+
+#Preprocess of Data
+
+##Eliminate Near Zero Variables 
+Near Zero variables are eliminated to reduce the risk of data subset with small amount of data that can inhibit the application of the cassifiers.  
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+
+nzv <- nearZeroVar(trainingSet)
+filteredDescr <- trainingSet[,-nzv]
+dim(filteredDescr)
+
+```
+
+
+##Select variables that can not used as Predictors
+Some variables are conceptually not considered as predictors. Also "clase" variable" as the outcome has been taken out. All pre-processing is then focused on predictors.  
+
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+
+corrAnalysis<-dplyr::select(filteredDescr,-user_name, -cvtd_timestamp, -classe, -X, -raw_timestamp_part_1, -raw_timestamp_part_2) 
+```
+
+
+##Identifying Correlated Predictors
+From the Dataset are excluded the predictors that presents a correlation with others higher than a treshold set to 75%. 
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+
+descrCor <- cor(corrAnalysis, use="complete.obs")
+highlyCorDescr <- findCorrelation(descrCor, cutoff = .75)
+filteredDescrNoCor<- corrAnalysis[,-highlyCorDescr] # selected list of predictors
+predictors<-filteredDescrNoCor
+dim(predictors)
+```
+The number of predictor has been reduced to`r dim(predictors)`.  
+
+
+# Linear correlations Analysis
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+ToLinear<-predictors[,colSums(is.na(predictors))==0]
+dim(ToLinear)
+comboInfo <- findLinearCombos(ToLinear)
+comboInfo$remove # There are no variables to be removed
+```
+The Analysis shows that there are no cases of linear correlations, so no predictor is removed.  
+
+
+# Impute value instead of NA
+The design of the model tried to avoid eliminating NA, considered the fact that no regression was planned to be used. Unfortunately some function related models (e.g. non caret Randon Forest) requires avoiding NA with some methods. We preferred to perform this actvity in advance in order to make all the compared model consistent.  
+In the first fase the models have been built Substituting NA with KNN with preprocess method "knnImpute". This solution does not gurantee the consistency of existance of 0 value and NA when the New Obeservation prediction (i.e. on the 20 test cases) is performed. The chosen solution has been therefore to substitute NA with zero. 
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+NonNAPredictors<-predictors[,colSums(is.na(predictors))==0]
+dim(NonNAPredictors)
+predictors[is.na(predictors)] <- 0
+NonNAPredictors<-predictors[,colSums(is.na(predictors))==0]
+dim(NonNAPredictors)
+
+
+```
+
+
+
+
+
+#Rebuild DataSet
+Outcome and predictors are pulled together again for the further steps.  
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+classe<-as.factor(filteredDescr$classe)
+dataset<-data.frame(classe, predictors)
+```
+
+
+
+#Prediction Study Design
+As introduced the "Testing dataset"" provided does not contain outcome variable "classe". It is therefore treated as a set of "new observations" dataset where to apply the validated and tested model.  
+  
+Training Dataset is therefore split in:
+* Actual Dataset (trainDs) -> 60% of original "Training Dataset" to train each model. This dataset is also used for cross validation 10 K-Fold cross validation approach.  
+* Test Dataset (testDs)-> 20%-> of original "Training Dataset" to verify performance of each model. 
+* Test Dataset (testDs)-> 20%-> of original "Training Dataset". To assess performance of the chosen model.  
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+
+inTrain <- createDataPartition(y=dataset$classe,p=0.60, list=FALSE)# training Dataset
+trainDs <- dataset[inTrain,] #training dataset
+oos <- dataset[-inTrain,]#out of sample= test + validation sets
+
+# split of out of sample subset in test and validation subset
+
+inTest<-createDataPartition(y=oos$classe,p=0.50, list=FALSE)
+testDs<-oos[inTest,]#Test Dataset
+validDs<-oos[-inTest,]#Validation Dataset
+# following statement are aimed to make sure that model training does not consider the oucome variable 
+trainDs$classe <- droplevels(trainDs$classe)
+trainDs$classe<-as.factor(trainDs$classe)
+
+testDs$classe <- droplevels(testDs$classe)
+testDs$classe<-as.factor(testDs$classe)
+
+validDs$classe <- droplevels(validDs$classe)
+validDs$classe<-as.factor(validDs$classe)
+
+dim(trainDs)
+dim(testDs)
+dim(validDs)
+```
+
+
+#Model Build Up
+Among all the classifier some has been selected for model training and then for prediction. Key factor for model building up is the fact that classification models require two features:
+1. Multinomial Classification features
+2. Outcome as "class" allocation and not as "class probability" (in the second case probability higher than 0.5 could be used for class allocation even if standard error measurements would be applied with higher complexity).  
+
+Each of the model is trained and then prediction are applied to Test Data set. Confusion Matrix is built on prediction and accuracy is used as the measurement of effectiveness of the model.  
+
+# Set Up Cross Validation approach for all of the models: cross validation 10 folds with 10 repeats
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+cvCtrl <- trainControl(method = "repeatedcv",  number = 10, repeats = 10)
+```
+
+
+
+## Tree Based Model: RPART
+Considering the above highlighted requirements 1 and 2, caret predict function does not provide claasification feedback. We believe that in case of multinomial classification caret messes up multiclass outcome variable as it was a regression problem (even if the outcome is clearly stated as factor).  
+We have been forced to use "rpart:::predict.rpart" function.  Inability to use caret and time constraints did not give us the opportunity to cross validate RPART MOdel. Tuning and cross validation, if we had more time, could have been performed with "rpart.control" (10 Kfold).
+
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+#Tree model without tuning
+tCART0<-train(classe ~ ., data=trainDs, method="rpart")
+tCART0Pred<-rpart:::predict.rpart(object = tCART0$finalModel, 
+                      newdata = testDs, 
+                      type = "class") 
+tCART0CMAcc<-confusionMatrix(tCART0Pred, testDs$classe)$overall[1] # requires 2 factor vectors
+```
+** NOTA se c'è tempo si può provare a fare il tuning e cross validation con rpart.control
+The RCART best accuracy is estimated in `r print(tCART0CMAcc)`.  
+
+## Random Forest
+Random Forrest has not been performed with Caret, given the difficulties due to reasonable computational time (My HW is very poor) and need to match model requirements 1 and 2.  
+randomForest Package has been used, both for training and prediction.
+Random Forest has been applied both without cross validation (it provides class allocation) and with cross validation (we only succeded to get class probabibility). Results are converging.  
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+fitrf<-randomForest(classe ~ .,data=trainDs, type="class",ntree=500,nodesize=5, na.action = na.roughfix)
+rf0Pred<-predict(object=fitrf, newdata=testDs, type="response")
+rf0CMAcc<-confusionMatrix(testDs$classe, rf0Pred)$overall[1]
+
+modelRF <- train(classe ~ ., data =trainDs, method = "rf", trControl = trainControl(method = "cv", 10), ntree = 500)
+rf1Pred<-predict(object=modelRF, newdata=testDs, type="prob")
+```
+
+The Random Forest best accuracy is estimated in `r rf0CMAcc`. The Random Forest model without cross validation and tuning is estimated in `r rf0CMAcc`  
+
+
+## Model Based (Naive Bayes)
+Even in this case Caret did not provide adequate output and computational effiiency, therefore we adopted Naive Bayes tuning (i.e. tune.control and tune functions) of package e1071.
+
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+tune.control <- tune.control(random =F, nrepeat=1,repeat.aggregate=mean,sampling=c("cross"), sampling.aggregate=mean, cross=10, best.model=T, performances=T)
+obj<-tune(naiveBayes, classe ~ ., data=trainDs, tunecontrol = tune.control)
+nb0Pred<-predict(object=obj$best.model, newdata=testDs, type="class")
+nb0CMAcc<-confusionMatrix(nb0Pred, testDs$classe)$overall[1] # requires 2 factor vectors
+
+```
+The Naive Bayes best accuracy is estimated in `r nb0CMAcc`. 
+
+## Boosting
+Even in this case Caret package was not adequate for performance and to fulfill requirement 1 and 2.
+Code has been developed to tune and predict. We succeed to issue class probability but not class allocation. A cunk of code should be developed to transform class probability into class allocation. Given time constraints we decided to drop using boosting model.
+
+## BagCart (TreeBag)
+This model has been evaluated but not trained considering that performances are geerally lower than the Random Forest
+
+
+
+# Validation of best algorithm
+Considering the accuracy obtained by the considered algorithm the most effective results to be the **Random Forest**.
+Here the application to Validation Data Set to identify expected performance on new observations. Confusion Matrix:
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+
+BestValPred<-predict(object=fitrf, newdata=validDs, type="response")
+BestConfMatx<-confusionMatrix(validDs$classe, BestValPred)
+ExpectedAccuracy<-confusionMatrix(validDs$classe, BestValPred)$overall[1]
+print(BestConfMatx$table)
+```
+The expected Accuracy is estimated in `r ExpectedAccuracy`. 
+
+
+## Apply Model to 20 new observations 
+
+```{r, cache = TRUE, echo = TRUE, results="asis", message = FALSE, warning = FALSE, tidy = FALSE}
+NewObs<-testingSet
+# Apply preprocessing to the set of cases
+NewObs1 <- NewObs[,-nzv]
+NewObs2<-dplyr::select(NewObs1,-user_name, -cvtd_timestamp, -X, -raw_timestamp_part_1, -raw_timestamp_part_2) 
+NewObs3<- NewObs2[,-highlyCorDescr]
+# Check Colums of "predictors" and "NewObs3"
+x<-as.vector(names(predictors))
+y<-as.vector(names(NewObs3))
+NewObs4<-dplyr::select(NewObs3,-problem_id) 
+NewObs4[,1:52]<- lapply(NewObs4[,1:52], as.numeric) # keep out factors
+NonNANewObs<-NewObs4[,colSums(is.na(predictors))==0]
+dim(NonNANewObs)
+NewObs4[is.na(NewObs4)] <- 0
+NonNANewObs<-NewObs4[,colSums(is.na(predictors))==0]
+dim(NonNANewObs)
+
+#Final Prediction
+NewObsPred<-predict(object=fitrf, newdata=NewObs4, type="response")
+NewObsPred2<-predict(object=modelRF, newdata=NewObs4, type="prob")
+print(NewObsPred)
+
+```
+
+_Thanks Mate for Graduation. Good Luck with data Science._
+M
